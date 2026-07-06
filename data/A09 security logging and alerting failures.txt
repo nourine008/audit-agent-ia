@@ -1,0 +1,68 @@
+# OWASP A09 Security Logging and Monitoring Failures
+
+## Description
+Cette vulnérabilité est présente lorsqu'une application ou une infrastructure n'enregistre pas, ne surveille pas ou n'émet pas d'alertes en cas d'événements critiques liés à la sécurité (échecs de connexion, escalades de privilèges, transactions suspectes). Sans une journalisation efficace, les attaques ne peuvent pas être détectées, rendant impossible toute réponse rapide lors d'un incident.
+
+L'application ou l'environnement est vulnérable si :
+1. Journalisation inconsistante : Les événements clés (comme les échecs de connexion répétés) ne sont pas enregistrés, ou seuls les succès le sont.
+2. Logs locaux et non protégés :Les logs sont stockés localement sans sauvegarde centralisée, permettant à un attaquant de les effacer pour masquer ses traces.
+3. **Messages flous ou insuffisants :** Les erreurs génèrent des messages cryptiques ou manquent de contexte utilisateur pour mener une analyse forensique.
+4. Surcharge de faux positifs :Trop d'alertes inutiles s'accumulent, empêchant l'équipe de supervision (SOC) de distinguer les attaques réelles des bruits de fond.
+5. Fuite de données dans les logs : Enregistrement accidentel de données hautement sensibles (mots de passe, données de carte bancaire, données personnelles PII).
+
+## Comment corriger cette faille
+1. Journaliser toutes les ruptures de contrôle : Enregistrer systématiquement tous les échecs d'authentification, de contrôle d'accès et de validation des entrées avec suffisamment de contexte (ex: identifiant utilisateur anonymisé, IP).
+2. Centralisation et intégrité (SIEM) : Transmettre immédiatement les logs vers un serveur centralisé sécurisé (ex: pile ELK, Splunk) doté de contrôles d'accès stricts et de tables en mode *Append-Only* (écriture seule, suppression interdite).
+3. Échappement des données de log :Encoder correctement les données fournies par les utilisateurs avant de les écrire dans les logs pour prévenir les injections de logs (Log Injection).
+4. Mise en place de pièges (Honeytokens): Insérer de fausses données ou de faux comptes d'utilisateurs dans l'application. Comme ils ne sont jamais utilisés légitimement, toute interaction avec eux déclenche immédiatement une alerte critique à 0% de faux positif.!
+5. Plan de réponse aux incidents :! Adopter un framework de réponse (type NIST SP 800-61) et former les équipes de développement à la reconnaissance des indicateurs de compromission (IoC).
+
+## Exemple de Code Vulnérable (Gestion des Connexions en PHP)
+```php
+$username = $_POST['username'];
+$password = $_POST['password'];
+
+$stmt = $db->prepare("SELECT * FROM users WHERE username = ?");
+$stmt->execute([$username]);
+$user = $stmt->fetch();
+
+if ($user && password_verify($password, $user['password_hash'])) {
+    $_SESSION['user'] = $user['id'];
+} else {
+    // VULNÉRABILITÉ 1 : L'échec de connexion n'est pas logué. Un attaquant peut faire du brute-force à l'infini sans laisser de trace.
+    // VULNÉRABILITÉ 2 (Si un développeur écrit la ligne suivante pour déboguer) :
+    // error_log("Échec de connexion pour : " . $username . " avec le mot de passe : " . $password); 
+    // -> GRAVE ERREUR : Fuite de données sensibles (PII/Mots de passe) en texte brut dans le fichier de log.
+    
+    http_response_code(401);
+    die("Identifiant invalide.");
+}
+
+## Exemple de code sécurisé (PHP)
+$username = $_POST['username'];
+$password = $_POST['password'];
+
+// Nettoyage de la variable pour empêcher les caractères de contrôle / injections dans les logs
+$sanitized_username = filter_var($username, FILTER_SANITIZE_STRING);
+
+$stmt = $db->prepare("SELECT * FROM users WHERE username = ?");
+$stmt->execute([$username]);
+$user = $stmt->fetch();
+
+if ($user && password_verify($password, $user['password_hash'])) {
+    $_SESSION['user'] = $user['id'];
+} else {
+    // CORRECTION 1 : Enregistrement structuré de l'échec avec contexte, SANS inclure le mot de passe saisi.
+    // CORRECTION 2 : Utilisation d'un format standardisé (JSON ou clé=valeur) lisible par un SIEM.
+    $log_entry = sprintf(
+        "[{TIMESTAMP}] [SECURITY_ALERT] [AUTH_FAILURE] IP=%s | Username_Attempted=%s\n",
+        $_SERVER['REMOTE_ADDR'],
+        $sanitized_username
+    );
+    
+    // Écriture dans le canal système sécurisé (qui doit être configuré pour pousser vers un serveur de log distant)
+    error_log($log_entry);
+    
+    http_response_code(401);
+    die("Identifiant invalide.");
+}

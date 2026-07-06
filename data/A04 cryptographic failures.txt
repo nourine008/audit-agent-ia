@@ -1,0 +1,44 @@
+# OWASP A02-Cryptographic Failures
+
+## Description
+Les défaillances cryptographiques surviennent lorsque des données sensibles (mots de passe, numéros de carte bancaire, données de santé, secrets d'affaires) ne sont pas suffisamment protégées en transit (sur le réseau) ou au repos (en base de données). L'absence de chiffrement fort ou l'utilisation d'algorithmes obsolètes expose ces données à des interceptions ou des vols.
+
+L'application est vulnérable si :
+1. Algorithmes obsolètes ou faibles :Utilisation de fonctions de hachage ou de chiffrement anciennes (ex: MD5, SHA1, mode ECB).
+2. Gestion des clés défaillante :Utilisation de clés par défaut, clés faibles, clés réutilisées ou directement écrites ("hardcodées") dans le code source.
+3. Absence de chiffrement en transit : Utilisation de protocoles non sécurisés (HTTP, FTP) ou absence de directives strictes comme HSTS.
+4. Aléatoire prévisible : Utilisation de fonctions de génération de nombres aléatoires non cryptographiques pour créer des clés, des tokens ou des IV (Initialization Vectors).
+5. Stockage de mots de passe non sécurisé : Mots de passe stockés en texte brut ou avec des fonctions de hachage trop rapides (simples ou sans sel).
+
+## Comment corriger cette faille
+1. Classification des données :Identifier et cartographier les données sensibles pour leur appliquer les contrôles requis par les réglementations (ex: RGPD, PCI DSS).
+2. Chiffrement strict en transit : Forcer l'utilisation de TLS >= 1.2 avec des suites de chiffrement fortes et activer l'en-tête `Strict-Transport-Security` (HSTS).
+3. Hachage robuste des mots de passe : Utiliser des fonctions de hachage adaptatives et salées avec un facteur de travail (délai) élevé, telles que Argon2, scrypt, bcrypt ou PBKDF2.
+4. Générateurs cryptographiques (CSPRNG) : Utiliser exclusivement des générateurs de nombres pseudo-aléatoires sécurisés sur le plan cryptographique pour les jetons et les vecteurs d'initialisation (IV). Ne jamais réutiliser un IV avec la même clé.
+5. Ne pas stocker inutilement : Supprimer ou tronquer les données sensibles dès qu'elles ne sont plus nécessaires. Ce qui n'est pas conservé ne peut pas être volé.
+
+## Exemple de Code Vulnérable (Scenario #2 - PHP)
+```php
+// VULNÉRABILITÉ 1 : Utilisation de MD5 (Algorithme obsolète et sujet aux collisions)
+// Si la base de données est compromise, l'attaquant casse ces empreintes instantanément avec des Rainbow Tables.
+$password = $_POST['password'];
+$hashed_password = md5($password); 
+
+// VULNÉRABILITÉ 2 : Génération d'un token d'activation avec une fonction non cryptographique (prévisible)
+$activation_token = rand(1000, 9999);
+
+
+##Exemple de Code Sécurisé (PHP)
+// CORRECTION 1 : Hachage robuste avec l'API standard de PHP (par défaut bcrypt ou Argon2ID)
+// La fonction gère automatiquement l'ajout d'un sel unique et fort par mot de passe et applique un facteur de travail.
+$password = $_POST['password'];
+$secure_hashed_password = password_hash($password, PASSWORD_DEFAULT);
+
+// Vérification sécurisée lors de la connexion :
+// if (password_verify($password, $secure_hashed_password)) { ... }
+
+
+// CORRECTION 2 : Génération d'un token hautement imprévisible avec un CSPRNG
+// Utilisation de random_bytes() qui puise dans la source d'entropie du système d'exploitation.
+$bytes = random_bytes(32);
+$secure_activation_token = bin2hex($bytes);

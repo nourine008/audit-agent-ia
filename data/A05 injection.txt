@@ -1,0 +1,50 @@
+# OWASP A05 Injection (SQL, NoSQL, OS Command, ORM)
+
+## Description 
+Une vulnérabilité d'injection se produit lorsqu'une application envoie des données utilisateur non fiables à un interpréteur (comme un navigateur, une base de données ou la ligne de commande), incitant ce dernier à exécuter une partie de ces données comme s'il s'agissait d'une commande système.
+
+L'application est vulnérable si :
+1. Absence de filtrage : Les données fournies par l'utilisateur ne sont ni validées, ni filtrées, ni nettoyées.
+2. Requêtes dynamiques non paramétrées : Des requêtes dynamiques ou des appels non paramétrés sont injectés directement dans l'interprète sans échappement contextuel.
+3. Paramètres ORM non sécurisés : Des données brutes sont utilisées dans les paramètres de recherche d'un ORM (comme Hibernate), permettant d'extraire des enregistrements sensibles.
+4. Concaténation directe :Les données utilisateur sont directement concaténées avec du code. La structure de la commande finale fusionne alors le code légitime et les données malveillantes.
+
+Les injections les plus courantes incluent : SQL, NoSQL, commandes OS, ORM, LDAP et Expression Language (EL).
+
+## Comment corriger cette faille
+La meilleure solution consiste à séparer impérativement les données des commandes :
+
+1. API Sécurisées et Requêtes Préparées (Paramétrage) :Utiliser une API qui évite l'utilisation brute de l'interpréteur, fournit une interface paramétrée ou migre vers des outils ORM.
+2. Validation stricte des entrées (White-listing) : Mettre en place une validation positive des entrées côté serveur.
+3. Échappement des caractères spéciaux : Si la séparation stricte est impossible, échapper les caractères spéciaux en utilisant la syntaxe d'échappement spécifique à l'interpréteur concerné.
+4. Attention aux structures : Les structures SQL (comme les noms de tables ou de colonnes) ne peuvent pas être échappées. Les entrées utilisateurs définissant ces structures doivent être proscrites.
+
+## Exemple de Code Vulnérable (Scenario #1 & #3 - SQL et OS Command en Java)
+// VULNÉRABILITÉ 1 (SQL) : Concaténation directe du paramètre 'id' dans la requête SQL
+// URL de l'attaque : [http://example.com/app/accountView?id=](http://example.com/app/accountView?id=)' OR '1'='1 (Retourne tous les comptes)
+String query = "SELECT * FROM accounts WHERE custID='" + request.getParameter("id") + "'";
+ResultSet results = connection.createStatement().executeQuery(query);
+
+// VULNÉRABILITÉ 2 (Command Injection) : Passage direct de l'entrée utilisateur à une commande OS
+// Attaque : domain = "example.com; cat /etc/passwd" (Exécute une commande arbitraire sur le serveur)
+String cmd = "nslookup " + request.getParameter("domain");
+Runtime.getRuntime().exec(cmd);
+
+## exemple de code sécurisé(java)
+// CORRECTION 1 (SQL) : Utilisation obligatoire d'une requête préparée (PreparedStatement)
+// Les données sont séparées de la structure de la commande SQL
+String query = "SELECT * FROM accounts WHERE custID = ?";
+PreparedStatement pstmt = connection.prepareStatement(query);
+pstmt.setString(1, request.getParameter("id")); 
+ResultSet results = pstmt.executeQuery();
+
+// CORRECTION 2 (OS Command) : Éviter l'exécution de commandes système brutes. 
+// Si indispensable, utiliser une liste stricte de valeurs autorisées (Whitelist) et valider l'entrée.
+String domain = request.getParameter("domain");
+// Expression régulière pour vérifier que l'entrée est uniquement un nom de domaine valide (pas de ';' ou de 'cat')
+if (domain != null && domain.matches("^[a-zA-Z0-9.-]+$")) {
+    String[] cmd = {"nslookup", domain};
+    Process process = Runtime.getRuntime().exec(cmd); // Passage sous forme de tableau d'arguments isolés
+} else {
+    throw new IllegalArgumentException("Entrée invalide détectée.");
+}

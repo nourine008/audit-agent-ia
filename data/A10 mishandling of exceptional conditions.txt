@@ -1,0 +1,94 @@
+# OWASP A10-Mishandling of exceptional conditions 
+
+## Description
+Une mauvaise gestion des conditions exceptionnelles se produit lorsqu'un logiciel ne parvient pas à anticiper, détecter ou traiter correctement des situations inhabituelles ou imprévisibles (erreurs système, coupures réseau, saturation mémoire). L'application devient alors instable, tombe dans un état inconnu et ouvre la porte à des vulnérabilités majeures (corruption d'état, déni de service, contournement d'authentification).
+
+L'application est vulnérable si :
+1. Défaut de capture (Uncaught Exceptions) : Les erreurs ne sont pas interceptées là où elles se produisent, laissant l'infrastructure sous-jacente gérer le plantage.
+2. Échec de restauration (Fail Open) : En cas de bug au milieu d'une transaction à étapes multiples, le système ne revient pas à l'état initial (absence de Rollback), ce qui corrompt les données.
+3. Absence de limites (No Rate Limiting) : Le système n'impose aucun quota de ressources ou de requêtes, facilitant l'épuisement des ressources (DoS).
+4. Fuite d'informations par reconnaissance :L'affichage de messages d'erreur système bruts permet à un attaquant de comprendre l'architecture pour affiner une attaque (ex: injection SQL).
+
+## Comment corriger cette faille
+L'application doit appliquer le principe de **défense en profondeur** et de **fermeture sécurisée (Fail Closed)** :
+
+1. Interception locale et globale : Capturer chaque exception directement dans la fonction concernée (`try/catch`) et configurer un gestionnaire global d'exceptions (Global Exception Handler) en filet de sécurité.
+2. Rollback systématique :Si une transaction échoue en cours de route, annuler immédiatement toutes les sous-étapes précédentes pour revenir à un état initial sain et sécurisé.
+3. Limitation et quotas (Throttling) : Mettre en œuvre du rate limiting et des quotas de mémoire/fichiers pour empêcher l'épuisement volontaire des ressources.
+4. Gestion centralisée et unifiée :L'organisation doit utiliser une seule et unique méthode standardisée pour traiter, journaliser (sans fuite de données) et notifier les erreurs.
+
+## Exemple de Code Vulnérable (Scenario #1 & #3 - Fuite de ressources et absence de Rollback en PHP)
+
+// VULNÉRABILITÉ 1 : Fuite de ressources lors d'une exception (Scénario #1)
+function processFile($filePath) {
+    $file = fopen($filePath, "r");
+    if (!$file) {
+        throw new Exception("Impossible d'ouvrir le fichier.");
+    }
+    // Si une exception survient ici pendant la lecture, le script s'arrête 
+    // et le pointeur de fichier reste ouvert en mémoire (Épuisement des ressources / DoS).
+    analyzeData($file); 
+    fclose($file); 
+}
+
+// VULNÉRABILITÉ 2 : Absence de Rollback lors d'un échec de transaction (Scénario #3)
+function transferMoney($db, $from, $to, $amount) {
+    // Étape 1 : Débit du compte source
+    $db->query("UPDATE accounts SET balance = balance - $amount WHERE id = $from");
+    
+    // Si une coupure réseau ou une erreur survient ICI, l'argent est retiré du premier compte 
+    // mais n'est jamais crédité sur le second (État corrompu).
+    $db->query("UPDATE accounts SET balance = balance + $amount WHERE id = $to");
+}
+
+
+## Exemple de Code Sécurisé (PHP)
+
+// CORRECTION 1 : Utilisation du bloc 'finally' pour garantir la libération des ressources
+function processFileSecure($filePath) {
+    $file = fopen($filePath, "r");
+    if (!$file) {
+        error_log("Échec d'ouverture du fichier : " . $filePath);
+        throw new Exception("Une erreur technique est survenue.");
+    }
+    try {
+        analyzeData($file);
+    } catch (Exception $e) {
+        error_log("Erreur lors de l'analyse : " . $e->getMessage());
+        throw new Exception("Traitement interrompu.");
+    } finally {
+        // Le bloc finally s'exécute TOUJOURS, que le code plante ou non.
+        // Sécurité : La ressource est impérativement libérée.
+        if (is_resource($file)) {
+            fclose($file);
+        }
+    }
+}
+
+// CORRECTION 2 : Utilisation des Transactions SQL et du mécanisme de Rollback (Fail Closed)
+function transferMoneySecure($db, $from, $to, $amount) {
+    try {
+        // Activation du mode transactionnel
+        $db->beginTransaction();
+        
+        // Étape 1 : Débit du compte source
+        $stmt1 = $db->prepare("UPDATE accounts SET balance = balance - ? WHERE id = ?");
+        $stmt1->execute([$amount, $from]);
+        
+        // Étape 2 : Crédit du compte cible
+        $stmt2 = $db->prepare("UPDATE accounts SET balance = balance + ? WHERE id = ?");
+        $stmt2->execute([$amount, $to]);
+        
+        // Si tout s'est bien passé, on valide définitivement en base de données
+        $db->commit();
+        
+    } catch (Exception $e) {
+        // CORRECTION CRITIQUE : En cas d'erreur à n'importe quelle étape, on annule TOUT.
+        // Le système revient à son état initial exact (Fail Closed).
+        $db->rollBack();
+        
+        error_log("Échec du transfert financier : " . $e->getMessage());
+        http_response_code(500);
+        die("La transaction a été annulée de manière sécurisée en raison d'une erreur technique.");
+    }
+}

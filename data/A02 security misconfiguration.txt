@@ -1,0 +1,51 @@
+# OWASP A02 Security Misconfiguration 
+
+## Description
+Une mauvaise configuration de la sécurité se produit lorsqu'un système, une application, un framework ou un service cloud est configuré de manière incorrecte, créant ainsi des vulnérabilités. 
+
+L'application est vulnérable si :
+1. Défaut de durcissement (Hardening) :Absence de sécurisation globale ou mauvaises permissions sur les services cloud (ex: buckets S3 ouverts au public).
+2. Fonctionnalités superflues actives :Pages, ports, services, comptes de test ou privilèges inutiles qui ne sont ni désactivés ni désinstallés.
+3. Comptes par défaut :Identifiants et mots de passe d'usine inchangés.
+4. Gestion des erreurs trop bavarde : Affichage des messages d'erreur détaillés (Stack Traces) directement aux utilisateurs, révélant des versions de composants ou des secrets.
+5. Absence de headers de sécurité :Le serveur n'envoie pas de directives HTTP sécurisées aux navigateurs clients.
+
+## Comment corriger cette faille
+1. Processus de durcissement reproductible : Automatiser le déploiement d'environnements verrouillés (Dev, QA, Prod identiques mais avec des identifiants différents).
+2. Plateforme minimale (Minimalist Platform) :*Supprimer tout composant, exemple ou documentation inutile.
+3. Gestion centralisée des erreurs : Intercepter toutes les erreurs système pour afficher un message générique aux utilisateurs tout en journalisant (log) le détail technique de manière sécurisée côté serveur.
+4. Headers de sécurité HTTP : Configurer le serveur pour envoyer des en-têtes stricts (ex: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`).
+5. Gestion sécurisée des secrets : Utiliser des identifiants à courte durée de vie ou des rôles IAM (Cloud) plutôt que d'intégrer des clés statiques dans le code ou les fichiers de configuration.
+
+## Exemple de Code Vulnérable (Scenario #2 & #3 - PHP)
+
+// VULNÉRABILITÉ 1 : Mauvaise configuration de l'affichage des erreurs en Production.
+// Les erreurs et stack traces PHP s'affichent à l'écran, exposant la structure des fichiers ou des versions de paquets à l'attaquant.
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+// VULNÉRABILITÉ 2 : Tentative d'accès à la base de données qui échoue.
+// Si la connexion plante, PDO va lever une exception qui expose publiquement le mot de passe ou l'adresse IP de la base de données.
+$db = new PDO('mysql:host=localhost;dbname=test', 'root', 'password_par_defaut_123');
+
+
+## exemple de code sécurisé (php)
+// CORRECTION 1 : En production, on désactive impérativement l'affichage des erreurs à l'écran
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+// CORRECTION 2 : Gestion centralisée des erreurs avec un bloc Try/Catch
+try {
+    // Utilisation d'identifiants robustes et non par défaut
+    $db = new PDO('mysql:host=localhost;dbname=test', 'db_user_secure', 'Un_Mot_De_Passe_Tres_Long_Et_Complexe');
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+// CORRECTION 3 : On enregistre le vrai message d'erreur dans les logs internes du serveur (invisible pour l'attaquant)
+    error_log("Erreur de connexion BDD : " . $e->getMessage());
+    
+    // On affiche un message neutre et sécurisé à l'utilisateur
+    http_response_code(500);
+    die("Une erreur interne est survenue. Veuillez réessayer plus tard.");
+}
+
+

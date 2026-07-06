@@ -1,0 +1,45 @@
+# OWASP A08 Software and Data Integrity Failures
+
+## Description
+Cette vulnérabilité survient lorsque le code ou l'infrastructure d'une application traite du code ou des données provenant de sources non fiables comme s'ils étaient intègres et valides. Cela inclut l'intégration de bibliothèques tierces sans vérification, les mécanismes de mise à jour automatique sans signature numérique, et la désérialisation de structures de données modifiables par les utilisateurs.
+
+L'application ou l'infrastructure est vulnérable si :
+1. Absence de signatures numériques : Les mises à jour logicielles ou les micrologiciels (firmwares) sont appliqués sans valider leur origine et leur intégrité.
+2. Utilisation de sources non fiables : Récupération de modules ou plugins sur des dépôts ou serveurs CDN externes non vérifiés.
+3. Insecure Deserialization (Désérialisation non sécurisée) : L'application reconstruit des objets en mémoire à partir de données sérialisées (ex: chaînes de caractères transmises par le client) qu'un attaquant peut manipuler pour injecter des objets malveillants et exécuter du code à distance (RCE).
+4. Exposition de cookies par sous-domaine : Mauvaise configuration DNS liant un prestataire externe à un sous-domaine de l'entreprise, lui transférant ainsi les cookies d'authentification.
+
+## Comment corriger cette faille
+1. Vérification cryptographique : Utiliser des signatures numériques ou des empreintes (hashes) pour s'assurer que les logiciels, paquets et données proviennent de la source attendue et n'ont pas été altérés.
+2. Sécurisation des désérialisations : Éviter de recevoir des objets sérialisés de clients non fiables. Si c'est indispensable, utiliser des formats de données purement textuels et standards (comme JSON ou XML) et valider strictement les types de données autorisés (White-listing).
+3. Pipelines CI/CD durcis : Implémenter un contrôle d'accès strict, une ségrégation des tâches et une revue humaine des modifications de configuration dans la chaîne de déploiement.
+4. Dépôts privés vérifiés :Pour les profils à haut risque, héberger un dépôt interne de packages (npm, Maven, NuGet) préalablement audités et validés par l'équipe de sécurité.
+
+## Exemple de Code Vulnérable (Scenario #4 - Désérialisation non sécurisée en PHP)
+// VULNÉRABILITÉ : On fait confiance à une chaîne d'objets sérialisés fournie par l'utilisateur via un cookie.
+// Un attaquant peut intercepter le cookie, modifier la structure de l'objet ou utiliser des gadgets (pop-chains) pour forcer le serveur à exécuter des commandes système (RCE).
+if (isset($_COOKIE['user_session'])) {
+    $serialized_data = base64_decode($_COOKIE['user_session']);
+    
+    // Fonction critique : Recrée aveuglément l'objet en mémoire avec toutes ses méthodes
+    $user_profile = unserialize($serialized_data); 
+}
+Exemple de Code Sécurisé (PHP)
+// CORRECTION 1 : Bannir l'utilisation de 'unserialize()' pour les données provenant du client.
+// À la place, on utilise le format standard JSON qui ne reconstruit pas de classes ou d'objets exécutables en mémoire.
+if (isset($_COOKIE['user_session'])) {
+    $json_data = base64_decode($_COOKIE['user_session']);
+    
+    // json_decode ne manipule que des chaînes brutes, des tableaux et des valeurs scalaires
+    $user_data = json_decode($json_data, true); 
+    
+    if (json_last_error() === JSON_ERROR_NONE) {
+        // CORRECTION 2 : Validation stricte des types et valeurs attendues
+        $user_id = filter_var($user_data['user_id'], FILTER_VALIDATE_INT);
+        $role = filter_var($user_data['role'], FILTER_SANITIZE_STRING);
+        
+        if ($user_id && $role) {
+            // Traitement sécurisé
+        }
+    }
+}

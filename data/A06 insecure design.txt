@@ -1,0 +1,61 @@
+# OWASP A06 -Insecure Design 
+
+## Description
+La conception non sécurisée représente des faiblesses caractérisées par l'absence ou l'inefficacité des contrôles de sécurité dès la genèse du projet. 
+
+Il existe une distinction critique entre une conception non sécurisée et une implémentation non sécurisée:
+Défaut d'implémentation : Le plan d'architecture était bon, mais le développeur a fait une erreur en écrivant le code (ex: une faute de frappe ouvrant une faille). Cela peut se corriger en modifiant la ligne de code.
+Défaut de conception : Le code est parfaitement écrit, mais la logique métier même du système est défaillante (ex: un mécanisme de récupération de mot de passe basé sur des questions secrètes). Une implémentation parfaite ne peut pas corriger une conception non sécurisée, car les contrôles nécessaires pour bloquer l'attaque n'ont jamais été prévus.
+
+## Comment corriger cette faille
+La sécurité doit être intégrée dès la phase de conception à travers un cycle de développement sécurisé (S-SDL) :
+
+1. Modélisation des menaces (Threat Modeling) :Évaluer constamment les risques sur les flux de données, l'authentification et la logique métier avant d'écrire le code.
+2. Utilisation de patterns de conception sécurisés (Paved Road) : Utiliser des composants et des architectures de référence déjà validés par des experts en sécurité.
+3.Vérifications de plausibilité (Plausibility Checks) : Valider la cohérence des données à chaque niveau de l'application (du front-end jusqu'à la base de données).
+4. Scénarios d'abus (Misuse Cases) : Écrire des tests unitaires et d'intégration non seulement pour vérifier que le code fonctionne, mais aussi pour valider qu'il résiste aux comportements malveillants détournant la logique métier.
+5. Ségrégation stricte : Isoler les couches applicatives (réseau, système) et cloisonner hermétiquement les données de chaque client (multi-tenant).
+
+## Exemple de Code Vulnérable (Scenario #1 & #2 - Logique Métier en PHP)
+```php
+// VULNÉRABILITÉ 1 (Scénario #1 - Récupération par Question Secrète)
+// Conception défaillante : On fait confiance à une information semi-publique (nom du premier animal) pour réinitialiser un accès.
+if ($_POST['security_answer'] === $user['pet_name']) {
+    $_SESSION['reset_allowed'] = true; // Permet de changer le mot de passe
+}
+
+// VULNÉRABILITÉ 2 (Scénario #2 - Logique de réservation sans validation globale)
+// L'application valide qu'une réservation ne dépasse pas 15 places, mais un attaquant lance 100 requêtes simultanées en boucle (Race Condition / Abus de logique) pour bloquer 1500 places d'un coup.
+$requested_seats = $_POST['seats'];
+if ($requested_seats <= 15) {
+    // Conception défaillante : Pas de vérification globale du comportement de l'utilisateur sur l'ensemble du site
+    book_seats($user_id, $requested_seats);
+}
+
+##Exemple de code sécurisé(php):
+
+// CORRECTION 1 (Conception robuste : Alternative aux questions secrètes)
+// On élimine les questions secrètes et on utilise un jeton cryptographique à usage unique (Token) envoyé sur un canal vérifié (Email/SMS).
+$token = bin2hex(random_bytes(32));
+$expiry = date("Y-m-d H:i:s", strtotime("+15 minutes"));
+
+// Stockage du jeton temporaire en base de données
+$stmt = $db->prepare("UPDATE users SET reset_token = ?, token_expiry = ? WHERE id = ?");
+$stmt->execute([$token, $expiry, $user_id]);
+// Envoyer le lien sécurisé par email : [https://example.com/reset?token=$token](https://example.com/reset?token=$token)
+
+
+// CORRECTION 2 (Conception robuste : Limitation du comportement abusif de logique métier)
+// On ajoute un contrôle de plausibilité global et une limitation de fréquence (Rate Limiting / Anti-bot)
+$ip_address = $_SERVER['REMOTE_ADDR'];
+$total_booked_today = get_user_total_bookings_today($user_id, $ip_address);
+
+// Conception sécurisée : On bloque si le comportement global dépasse une limite logique métier, même si chaque requête individuelle est légitime.
+if ($total_booked_today + $requested_seats > 50) {
+    http_response_code(429);
+    die("Détéction d'un comportement anormal. Réservation bloquée pour vérification.");
+}
+
+if ($requested_seats <= 15) {
+    book_seats($user_id, $requested_seats);
+}

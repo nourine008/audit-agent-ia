@@ -1,0 +1,45 @@
+# OWASP A03:Software Supply Chain Failures
+
+## Description
+Les défaillances de la chaîne d'approvisionnement logiciel (Software Supply Chain Failures)se produisent lors de compromissions dans le processus de développement, de distribution ou de mise à jour des logiciels. Elles découlent souvent de l'utilisation de dépendances tierces (librairies, paquets, frameworks) obsolètes, non maintenues ou injectées de code malveillant.
+
+L'application ou l'environnement est vulnérable si :
+1. Absence d'inventaire des dépendances :Pas de suivi des versions des composants utilisés (directs et   transitifs/imbriqués).
+2. Composants obsolètes ou vulnérables :Utilisation de versions de bibliothèques, de frameworks ou d'OS contenant des failles connues (CVE) ou n'étant plus supportés.
+3. Absence de numérisation régulière : Pas d'utilisation d'outils d'analyse de composition logicielle (SCA) pour détecter automatiquement les vulnérabilités avant la mise en production.
+4. Pipelines CI/CD et outils de développement non durcis :Manque de contrôle d'accès, de double authentification (MFA) ou de séparation des tâches (un seul développeur peut pousser du code directement en production sans validation).
+
+Les attaquants ciblent désormais directement les machines des développeurs et les dépôts de paquets (npm, PyPI) pour propager des logiciels malveillants via des mises à jour en apparence légitimes.
+
+## Comment corriger cette faille
+1. Générer un SBOM (Software Bill of Materials) : Tenir un inventaire centralisé et continu de tous les composants et de leurs sous-dépendances.
+2. Analyse automatisée (SCA) :Intégrer des outils comme `npm audit`, `OWASP Dependency-Check` ou `retire.js` dans le pipeline de développement pour bloquer l'usage de paquets vulnérables.
+3. Sources de confiance et signatures : Obtenir les composants uniquement depuis des sources officielles et vérifier les signatures numériques des paquets.
+4. Verrouillage des versions :Fixer explicitement les versions des dépendances dans des fichiers de verrouillage (ex: `package-lock.json`, `composer.lock`) et tester la compatibilité avant toute mise à niveau.
+5. Durcissement de l'infrastructure : Sécuriser les dépôts de code, exiger des revues de code (Pull Requests) et isoler les secrets d'environnement dans les pipelines CI/CD.
+
+## Exemple de Code/Configuration Vulnérable (package.json - Node.js)
+```json
+{
+  "name": "mon-petit-projet-web",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.16.0",
+    "lodash": "4.17.4",
+    "restler": "*" 
+  }
+}
+VULNÉRABILITÉS CONFIGURATIONNELLES :
+1. "lodash": "4.17.4" -> Cette version précise contient des vulnérabilités critiques connues (RCE / Prototype Pollution).
+2. "restler": "*" -> L'utilisation du joker "*" télécharge automatiquement la toute dernière version disponible lors du déploiement. Si le dépôt du créateur est piraté (attaque Supply Chain), le serveur téléchargera directement le code malveillant.
+3. Un fichier "package-lock.json" est manquant à la racine du projet, rendant les builds instables et non reproductibles.
+
+##Exemple de Configuration Sécurisée (package.json & Processus - Node.js)
+{
+  "name": "mon-petit-projet-web",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "~4.21.2",
+    "lodash": "^4.17.21"
+  }
+}

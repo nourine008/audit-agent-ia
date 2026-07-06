@@ -1,0 +1,55 @@
+# OWASP A01 Broken Access Control
+
+## Description
+Le contrôle d'accès garantit que les utilisateurs ne peuvent pas agir au-delà de leurs autorisations minimales. Les défaillances entraînent généralement la divulgation, la modification ou la destruction non autorisée de données, ou l'exécution de fonctions professionnelles au-delà des limites de l'utilisateur.
+
+Les vulnérabilités courantes incluent :
+1. Violation du principe du moindre privilège :** Accès accordé par défaut à tout le monde au lieu d'être restreint.
+2. Contournement des contrôles :** Modification de l'URL (paramètres ou navigation forcée), de l'état de l'application, ou requêtes API falsifiées.
+3. IDOR (Insecure Direct Object References) :** Visualiser ou modifier le compte de quelqu'un d'autre en fournissant simplement son identifiant unique.
+4. Élévation de privilèges :** Agir en tant qu'administrateur sans en avoir les droits ou intercepter des jetons (JWT/Cookies) falsifiés.
+5. Mauvaise configuration CORS :** Permettre l'accès à l'API depuis des origines non fiables.
+
+## Comment corriger cette faille
+1. Refus par défaut (Deny by default) :** Sauf pour les ressources publiques, l'accès doit être bloqué par défaut.
+2. Contrôle côté serveur uniquement :** Ne jamais faire confiance au code front-end (JavaScript) pour la sécurité. Le contrôle d'accès doit être validé sur le serveur.
+3. Vérification de la propriété des données :** Le système doit vérifier si l'utilisateur connecté possède légitimement l'enregistrement qu'il tente de lire ou modifier.
+4. Gestion stricte des sessions :** Invalider les jetons de session (JWT, cookies) côté serveur lors de la déconnexion et utiliser des durées de vie courtes pour les jetons sans état.
+5. Désactiver le listing de répertoires :** Empêcher l'accès aux métadonnées sensibles (ex: dossiers `.git`).
+
+## Exemple de Code Vulnérable (Scenario #1 & #3 - Paramètre et Front-end)
+```php
+// VULNÉRABILITÉ 1 : On fait confiance au paramètre 'acct' provenant de l'URL sans vérifier si l'utilisateur connecté en est le propriétaire.
+// URL cible de l'attaque : [https://example.com/app/accountInfo?acct=notmyacct](https://example.com/app/accountInfo?acct=notmyacct)
+$account = $_GET['acct'];
+$stmt = $db->prepare("SELECT * FROM accounts WHERE account_number = ?");
+$stmt->execute([$account]);
+$results = $stmt->fetchAll();
+
+// VULNÉRABILITÉ 2 : Protéger l'accès uniquement en JavaScript côté Front-end. 
+// L'attaquant contourne le code avec un simple outil en ligne de commande : curl [https://example.com/app/admin_getappInfo](https://example.com/app/admin_getappInfo)
+
+## Exemple de code sécurisé (php)
+session_start();
+$profile_id = $_GET['id'];
+
+// CORRECTION : On vérifie que l'ID demandé correspond bien à l'utilisateur actuellement connecté en session
+if ($_SESSION['user_id'] !== $profile_id) {
+    die("Accès refusé : Vous n'avez pas l'autorisation de voir ce profil.");
+}
+
+$stmt = $db->prepare("SELECT * FROM profiles WHERE id = ?");
+$stmt->execute([$profile_id]);
+$result = $stmt->fetch();
+
+
+
+## exemple de code sécurisé (Node.js / JavaScript)
+const bcrypt = require('bcrypt');
+const password = req.body.password;
+
+// CORRECTION : Utilisation de bcrypt avec un "salt" automatique, un algorithme robuste et lent conçu pour les mots de passe
+const saltRounds = 10;
+bcrypt.hash(password, saltRounds, function(err, hashedPassword) {
+    // Stocker le hashedPassword de manière sécurisée en base de données
+});
